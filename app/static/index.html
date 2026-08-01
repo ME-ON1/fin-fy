@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>fin-fy · ledger</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">💸 fin-fy</div>
+    <button id="memberChip" class="chip" title="Switch person / device">
+      <span id="memberName">…</span>
+      <span id="memberPhone" class="chip-sub"></span>
+    </button>
+  </header>
+
+  <main>
+    <!-- Upload -->
+    <section class="upload-card" id="uploadCard">
+      <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+      <button class="upload-btn" id="uploadBtn">
+        <span class="up-icon">⬆️</span>
+        <span class="up-main">Upload statement PDF</span>
+        <span class="up-sub">bank / UPI statement · parsed &amp; reviewed before saving</span>
+      </button>
+    </section>
+
+    <!-- Tabs -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="ledger">Ledger</button>
+      <button class="tab" data-tab="upi">By UPI</button>
+      <button class="tab" data-tab="split">Split</button>
+      <button class="tab" data-tab="people">People</button>
+    </nav>
+
+    <section class="toolbar">
+      <input type="month" id="monthPicker" class="month-input">
+      <select id="memberFilter" class="member-filter">
+        <option value="">Everyone</option>
+      </select>
+    </section>
+
+    <!-- Ledger view -->
+    <section id="view-ledger" class="view active">
+      <div class="summary-cards" id="summaryCards"></div>
+      <div id="ledgerList" class="tx-list"></div>
+    </section>
+
+    <!-- By UPI view -->
+    <section id="view-upi" class="view">
+      <div id="upiList" class="upi-list"></div>
+    </section>
+
+    <!-- Split view -->
+    <section id="view-split" class="view">
+      <div class="summary-cards" id="splitCards"></div>
+      <div id="settlements" class="settlements"></div>
+      <div id="splitList" class="tx-list"></div>
+    </section>
+
+    <!-- People view -->
+    <section id="view-people" class="view">
+      <div id="peopleList" class="people-list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Register modal -->
+<div class="modal" id="registerModal" hidden>
+  <div class="modal-card">
+    <h2>Who is this device?</h2>
+    <p class="muted">Your name is stored with this phone so uploads are tagged to you.</p>
+    <label>Name</label>
+    <input type="text" id="regName" placeholder="e.g. Rohan" autocomplete="name">
+    <label>Your UPI ID (optional)</label>
+    <input type="text" id="regUpi" placeholder="e.g. rohan@okaxis" autocomplete="off">
+    <button class="btn-primary" id="regSave">Save</button>
+    <p id="regError" class="error" hidden></p>
+  </div>
+</div>
+
+<!-- Upload preview modal -->
+<div class="modal" id="previewModal" hidden>
+  <div class="modal-card preview-card">
+    <h2>Review parsed transactions</h2>
+    <div id="previewMeta" class="preview-meta"></div>
+    <div id="previewWarnings" class="warnings"></div>
+    <div id="previewRows" class="preview-rows"></div>
+    <div class="preview-actions">
+      <button class="btn-ghost" id="previewCancel">Discard</button>
+      <button class="btn-primary" id="previewSaveSplit">Save &amp; view split ▶</button>
+      <button class="btn-primary" id="previewSave">Save all (<span id="previewCount">0</span>)</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
