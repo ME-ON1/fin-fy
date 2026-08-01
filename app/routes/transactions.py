@@ -4,6 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth import require_member
 from app.database import get_db
 from app.models import Account, Member, Transaction, TransactionType
 from app.schemas import AccountOut, BatchCreate, BatchResult, TransactionOut
@@ -60,21 +61,29 @@ def list_transactions(
 
 
 @router.delete("/{tx_id}")
-def delete_transaction(tx_id: uuid.UUID, db: Session = Depends(get_db)):
+def delete_transaction(
+    tx_id: uuid.UUID,
+    member: Member = Depends(require_member),
+    db: Session = Depends(get_db),
+):
     t = db.get(Transaction, tx_id)
     if not t:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if t.member_id != member.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own transactions")
     db.delete(t)
     db.commit()
     return {"ok": True}
 
 
 @router.post("/batch", response_model=BatchResult)
-def create_batch(payload: BatchCreate, member_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Save a reviewed batch of parsed transactions for a member."""
-    member = db.get(Member, member_id)
-    if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
+def create_batch(
+    payload: BatchCreate,
+    member: Member = Depends(require_member),
+    db: Session = Depends(get_db),
+):
+    """Save a reviewed batch of parsed transactions for the authenticated member."""
+    member_id = member.id
 
     account = None
     if payload.account_id:

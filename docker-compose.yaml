@@ -1,28 +1,25 @@
-# Use postgres/example user/password credentials
+# fin-fy self-hosted database server: libsql (sqld)
+# - data lives in the `finfy-sqld-data` volume on this machine
+# - ports are bound to 127.0.0.1 only: only the fin-fy app can reach them
+# - 8080 = Hrana over HTTP (Turso/pyturso clients), 5001 = legacy WS Hrana
 
 services:
 
   db:
-    image: postgres:18.4
-    container_name: fin-fy-db
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    container_name: fin-fy-sqld
     restart: always
-    # or set shared memory limit when deploy via swarm stack
-    #volumes:
-    #  - type: tmpfs
-    #    target: /dev/shm
-    #    tmpfs:
-    #      size: 134217728 # 128*2^20 bytes = 128Mb
-
     ports:
-        - "5544:5432"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:5001:5001"
     volumes:
-      - postgres:/var/lib/postgresql/
+      - finfy-sqld-data:/data
     environment:
-      POSTGRES_PASSWORD: password
-      POSTGRES_USER: user 
-      POSTGRES_DB: fin_fy
-
-
+      SQLD_NODE: standalone
+      SQLD_DB_PATH: /data/iku.db
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+    command: ["/bin/sqld", "--hrana-listen-addr", "0.0.0.0:5001"]
+    user: "0"
 
 volumes:
-  postgres: 
+  finfy-sqld-data:

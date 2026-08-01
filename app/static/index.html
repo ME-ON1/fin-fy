@@ -73,11 +73,14 @@
 <div class="modal" id="registerModal" hidden>
   <div class="modal-card">
     <h2>Who is this device?</h2>
-    <p class="muted">Your name is stored with this phone so uploads are tagged to you.</p>
+    <p class="muted">This device is fingerprinted and bound to your name.
+    Uploads and transactions are only accessible from it.</p>
     <label>Name</label>
     <input type="text" id="regName" placeholder="e.g. Rohan" autocomplete="name">
     <label>Your UPI ID (optional)</label>
     <input type="text" id="regUpi" placeholder="e.g. rohan@okaxis" autocomplete="off">
+    <label>PIN (4+ digits) — needed to add another device later</label>
+    <input type="password" id="regPin" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password" placeholder="····">
     <button class="btn-primary" id="regSave">Save</button>
     <p id="regError" class="error" hidden></p>
   </div>
@@ -87,9 +90,11 @@
 <div class="modal" id="previewModal" hidden>
   <div class="modal-card preview-card">
     <h2>Review parsed transactions</h2>
-    <div id="previewMeta" class="preview-meta"></div>
-    <div id="previewWarnings" class="warnings"></div>
-    <div id="previewRows" class="preview-rows"></div>
+    <div class="preview-scroll">
+      <div id="previewMeta" class="preview-meta"></div>
+      <div id="previewWarnings" class="warnings"></div>
+      <div id="previewRows" class="preview-rows"></div>
+    </div>
     <div class="preview-actions">
       <button class="btn-ghost" id="previewCancel">Discard</button>
       <button class="btn-primary" id="previewSaveSplit">Save &amp; view split ▶</button>
@@ -100,6 +105,7 @@
 
 <div id="toasts" class="toasts"></div>
 
+<script src="/fp.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

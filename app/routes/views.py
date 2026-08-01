@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth import require_member
 from app.database import get_db
 from app.models import Member, Transaction, TransactionType
 from app.schemas import (
@@ -69,6 +70,7 @@ def _row(t: Transaction) -> LedgerRow:
 def monthly_ledger(
     month: str,
     member_id: uuid.UUID | None = None,
+    _member: Member = Depends(require_member),
     db: Session = Depends(get_db),
 ):
     txs = _fetch(month, member_id, db)
@@ -100,6 +102,7 @@ def monthly_ledger(
 def upi_summary(
     month: str,
     member_id: uuid.UUID | None = None,
+    _member: Member = Depends(require_member),
     db: Session = Depends(get_db),
 ):
     """'Paid this UPI ID month-wise': group debit transactions by the payee VPA
@@ -155,6 +158,7 @@ def upi_summary(
 def split_view(
     month: str,
     member_id: uuid.UUID | None = None,
+    _member: Member = Depends(require_member),
     db: Session = Depends(get_db),
 ):
     """Split-wise view: how each shared ('both') transaction splits 50/50
@@ -210,7 +214,10 @@ def split_view(
 
 
 @router.get("/members-summary")
-def members_summary(db: Session = Depends(get_db)):
+def members_summary(
+    _member: Member = Depends(require_member),
+    db: Session = Depends(get_db),
+):
     """Settlement overview: what each member paid and, for shared transactions,
     who owes whom. Split is assumed 50/50."""
     members = db.query(Member).all()

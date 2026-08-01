@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.auth import require_member
 from app.classify import classify, guess_counterparty
 from app.database import get_db
 from app.models import Member
@@ -11,18 +12,6 @@ from app.pdf_parser import parse_pdf, ParseResult, ParsedRow
 from app.schemas import ParsedAccount, ParsedTx, UploadPreview
 
 router = APIRouter(prefix="/upload", tags=["upload"])
-
-
-def _get_member_or_403(db: Session, device_id: str | None) -> Member:
-    if not device_id:
-        raise HTTPException(status_code=403, detail="No device id provided")
-    member = db.query(Member).filter(Member.device_id == device_id).first()
-    if not member:
-        raise HTTPException(
-            status_code=403,
-            detail="Device not registered. Register your name first.",
-        )
-    return member
 
 
 def _to_preview(
@@ -61,12 +50,9 @@ def _to_preview(
 @router.post("", response_model=UploadPreview)
 async def upload_statement(
     file: UploadFile = File(...),
-    x_device_id: str | None = Header(default=None),
-    device_id: str | None = None,
+    member: Member = Depends(require_member),
     db: Session = Depends(get_db),
 ):
-    device_id = device_id or x_device_id
-    member = _get_member_or_403(db, device_id)
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 

@@ -13,6 +13,12 @@ transactions split between people.
   phone model is detected from the browser's user-agent (e.g. *Galaxy S24*,
   *iPhone*) and bound to your member record. Uploads from the same device are
   always tagged to you.
+- **Device fingerprinting** — each device is fingerprinted (canvas + WebGL +
+  UA + locale/timezone hashed with SHA-256) and bound to your member. API
+  access requires a matching fingerprint, so only your device can act as you —
+  even if browser storage is cleared, the device is still recognized. A PIN
+  (set at registration) is required to bind a *new* device to an existing
+  member, and the wrong PIN is rejected.
 - **"both" sharing logic** — remarks containing *both* (or groceries, which is
   always shared) are flagged as shared and split 50/50 with the other person.
   Categories (food, transport, groceries…) are auto-guessed.
@@ -21,12 +27,23 @@ transactions split between people.
     breakdown, and per-day grouping.
   - *By UPI* — what you paid to each UPI ID (VPA) in a month, with counts,
     totals and shared amounts.
+  - *Split* — month-wise split of every shared transaction plus the net
+    settlement (who pays whom).
   - *People* — who paid what, and who owes whom the shared half.
 - **Self-hosted** — runs on your LAN; any phone on the network can use it.
 
 ## Stack
 
-FastAPI · SQLAlchemy · Alembic · PostgreSQL (Docker) · pdfplumber · vanilla JS
+FastAPI · SQLAlchemy · Alembic · vanilla JS · pdfplumber
+
+**Database is pluggable** — pick one via `DB_TYPE` in `.env`:
+
+| `DB_TYPE` | Where data lives | Notes |
+| --- | --- | --- |
+| `libsql` (default) | **self-hosted sqld** — the open-source libSQL server in Docker (`docker compose up -d`) | recommended: real DB server on your machine |
+| `sqlite` | a single file `data/fin_fy.db` | zero-Docker fallback |
+| `postgres` | Docker `fin-fy-db` on port 5544 | if you prefer Postgres |
+| `libsql` + Turso cloud | Turso's servers | change `TURSO_URL` to `libsql://<org>.turso.io` + token |
 
 ## Setup
 
@@ -34,10 +51,10 @@ FastAPI · SQLAlchemy · Alembic · PostgreSQL (Docker) · pdfplumber · vanilla
 # 1. install deps
 uv sync
 
-# 2. start the database (port 5544, so it doesn't clash with other postgres)
+# 2. start the database server (self-hosted libSQL/sqld, binds to 127.0.0.1 only)
 docker compose up -d
 
-# 3. migrate
+# 3. create/migrate the database (respects DB_TYPE)
 .venv/bin/alembic upgrade head
 
 # 4. run (binds all interfaces for LAN access)
@@ -48,8 +65,42 @@ Open `http://<your-machine-ip>:8000` from your phone browser (find the IP with
 `ipconfig getifaddr en0` on macOS or `hostname -I` on Linux). Register your
 name once — it is bound to your phone — then upload a statement PDF.
 
-> The DB listens on port **5544** (`.env` → `DB_PORT`). Change it in
-> `docker-compose.yaml` and `.env` if you prefer another port.
+### SQLite (no Docker)
+
+```bash
+# .env: DB_TYPE=sqlite
+docker compose down   # sqld not needed
+.venv/bin/alembic upgrade head
+```
+
+### Postgres (optional)
+
+```bash
+# .env: DB_TYPE=postgres (and DB_USER/DB_PASS/DB_PORT/DB_NAME)
+docker compose up -d
+.venv/bin/alembic upgrade head
+```
+
+### Turso cloud (optional, data leaves your machine)
+
+```bash
+turso auth login && turso db create finfy && turso db tokens create finfy
+```
+
+```
+# .env
+DB_TYPE=libsql
+TURSO_URL=libsql://finfy-<org>.turso.io
+TURSO_AUTH_TOKEN=<token>
+```
+
+> **Why a custom dialect instead of `sqlalchemy-libsql`/`pyturso`?** Modern sqld
+> (0.24+) serves Hrana over HTTP/WebSocket; the embedded-replica sync protocol
+> moved to gRPC, which the Python drivers don't support yet (and `pyturso`'s
+> sync mode needs a local replica file + explicit pull/push anyway). The app
+> therefore talks to sqld **directly** (`app/libsql_dialect.py` — Hrana
+> over `ws://`), same as it would to Postgres: no local replica to manage.
+> `pyturso` stays in the deps for the local-replica path if you ever want it.
 
 ## Generating a sample statement (for testing)
 

@@ -13,7 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
-    func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,9 +53,17 @@ class Member(Base):
     device_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Device fingerprint (JSON list of the last few accepted fingerprints,
+    # for drift tolerance across browser updates). Primary access credential.
+    fingerprints: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # PIN (hashed) — used to re-bind a new/unknown device to this member.
+    pin_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    pin_salt: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
     )
 
     transactions: Mapped[list["Transaction"]] = relationship(
@@ -75,9 +83,9 @@ class Account(Base):
     name: Mapped[str] = mapped_column(String(255))  # e.g. "Paytm Payments Bank"
     upi_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
     )
 
     member: Mapped["Member"] = relationship(back_populates="accounts")
@@ -116,9 +124,9 @@ class Transaction(Base):
 
     source_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
     )
 
     member: Mapped["Member"] = relationship(

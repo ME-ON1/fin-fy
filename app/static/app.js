@@ -5,9 +5,29 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
+
 const DEVICE_KEY = "finfy_device_id";
+const FP_KEY = "finfy_fp";
+
+function makeDeviceId() {
+  // crypto.randomUUID is only available in secure contexts (https / localhost);
+  // on plain http over LAN it doesn't exist, so fall back to a random string.
+  try {
+    if (window.crypto && typeof crypto.randomUUID === "function" && window.crypto && window.crypto.randomUUID) {
+      return crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+    }
+  } catch {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+  }
+  return "dev-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 18);
+}
 const state = {
   deviceId: localStorage.getItem(DEVICE_KEY) || null,
+  fingerprint: null,
   me: null,
   members: [],
   month: new Date().toISOString().slice(0, 7),
@@ -15,16 +35,37 @@ const state = {
   preview: null, // { account, transactions, source_file }
 };
 
+function getFingerprint(force = false) {
+  // The fingerprint is stable per device — cache it so browser-update drift
+  // doesn't lock anyone out; recompute only when missing or forced.
+  if (!force && state.fingerprint) return state.fingerprint;
+  let fp = force ? null : localStorage.getItem(FP_KEY);
+  if (!fp) {
+    try { fp = window.finfyFingerprint.compute().hash; } catch { return null; }
+    if (fp) localStorage.setItem(FP_KEY, fp);
+  }
+  state.fingerprint = fp;
+  return fp;
+}
+
 /* ---------------- api helpers ---------------- */
 
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (state.deviceId) headers["X-Device-Id"] = state.deviceId;
+  const fp = getFingerprint();
+  if (fp) headers["X-Device-Fp"] = fp;
   if (opts.body && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
   const res = await fetch(path, { ...opts, headers });
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch {}
+    if (detail === "device_not_recognized" && res.status === 403) {
+      // fingerprint not bound to any member: re-auth this device
+      state.me = null;
+      openRegister("This device isn't recognized. Enter your name and PIN to use it.");
+      return null;
+    }
     throw new Error(detail);
   }
   return res.json();
@@ -47,20 +88,18 @@ function fmtMoney(n) {
 }
 
 async function ensureMember() {
-  if (!state.deviceId) {
-    openRegister();
-    return null;
-  }
+  if (!getFingerprint()) { openRegister(); return null; }
   try {
-    state.me = await api(`/api/members/me?device_id=${encodeURIComponent(state.deviceId)}`);
+    state.me = await api(`/api/members/me`);
   } catch { state.me = null; }
-  if (!state.me) openRegister();
+  if (state.me === null) openRegister();
   return state.me;
 }
 
-function openRegister() {
+function openRegister(note) {
   $("#registerModal").hidden = false;
   $("#regError").hidden = true;
+  $("#regError").textContent = note || "";
   setTimeout(() => $("#regName").focus(), 100);
 }
 
@@ -68,17 +107,29 @@ async function saveRegistration() {
   const name = $("#regName").value.trim();
   if (!name) { $("#regError").textContent = "Please enter your name."; $("#regError").hidden = false; return; }
   if (!state.deviceId) {
-    state.deviceId = crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+    state.deviceId = makeDeviceId();
     localStorage.setItem(DEVICE_KEY, state.deviceId);
   }
+  const fp = getFingerprint(true); // recompute: this is the moment of truth
+  if (!fp) { $("#regError").textContent = "Couldn't fingerprint this device."; $("#regError").hidden = false; return; }
   try {
     state.me = await api("/api/members/register", {
       method: "POST",
-      body: JSON.stringify({ name, device_id: state.deviceId, upi_id: $("#regUpi").value.trim() || null }),
+      body: JSON.stringify({
+        name,
+        device_id: state.deviceId,
+        upi_id: $("#regUpi").value.trim() || null,
+        pin: $("#regPin").value.trim() || null,
+      }),
     });
+    if (state.me === null) return; // 403 re-auth path already opened the modal
+    if (state.me.name !== name) {
+      toast(`This device is already registered to ${state.me.name} — welcome back!`, "ok");
+    } else {
+      toast(`Welcome, ${name}! 👋`, "ok");
+    }
     $("#registerModal").hidden = true;
     renderMemberChip();
-    toast(`Welcome, ${name}! 👋`, "ok");
     await loadAll();
   } catch (e) {
     $("#regError").textContent = e.message;
@@ -122,6 +173,7 @@ async function loadLedger() {
   let data;
   try { data = await api(`/api/views/ledger?${q}`); }
   catch (e) { toast(e.message, "err"); return; }
+  if (!data || !data.summary) return;
 
   const s = data.summary;
   const cards = $("#summaryCards");
@@ -198,6 +250,7 @@ async function loadUpi() {
   let data;
   try { data = await api(`/api/views/upi-summary?${q}`); }
   catch (e) { toast(e.message, "err"); return; }
+  if (!data || !data.buckets) return;
 
   const list = $("#upiList");
   if (!data.buckets.length) {
@@ -235,6 +288,7 @@ async function loadPeople() {
   let data;
   try { data = await api("/api/views/members-summary"); }
   catch (e) { toast(e.message, "err"); return; }
+  if (!data || !data.members) return;
   const list = $("#peopleList");
   if (!data.members.length) {
     list.innerHTML = `<div class="empty">No members yet. Register your name from the top-right chip.</div>`;
@@ -259,6 +313,7 @@ async function loadSplit() {
   let data;
   try { data = await api(`/api/views/split?${q}`); }
   catch (e) { toast(e.message, "err"); return; }
+  if (!data || !data.transactions) return;
 
   let cards = `
     <div class="sum-card"><div class="label">Shared txns</div><div class="value amber">${data.shared_count}</div></div>
@@ -442,7 +497,14 @@ async function init() {
   $("#fileInput").addEventListener("change", (e) => handleFile(e.target.files[0]));
   $("#regSave").addEventListener("click", saveRegistration);
   $("#regName").addEventListener("keydown", (e) => { if (e.key === "Enter") saveRegistration(); });
-  $("#memberChip").addEventListener("click", () => { state.deviceId = null; localStorage.removeItem(DEVICE_KEY); state.me = null; renderMemberChip(); openRegister(); });
+  $("#regPin").addEventListener("keydown", (e) => { if (e.key === "Enter") saveRegistration(); });
+  $("#memberChip").addEventListener("click", () => {
+    if (state.me) {
+      toast(`This device is registered to ${state.me.name} — one device = one person.`, "ok");
+      return;
+    }
+    openRegister();
+  });
   $("#previewSave").addEventListener("click", () => savePreview(false));
   $("#previewSaveSplit").addEventListener("click", () => savePreview(true));
   $("#previewCancel").addEventListener("click", () => { $("#previewModal").hidden = true; state.preview = null; });
@@ -453,15 +515,18 @@ async function init() {
 
   $("#monthPicker").value = state.month;
 
-  // hide shared-with toggle when no other members exist
-  const members = await api("/api/members").catch(() => []);
-  state.members = members;
-  $("#memberFilter").innerHTML = `<option value="">Everyone</option>` +
-    members.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
-
+  // device identity first (register / auto-login via fingerprint), then members
   await ensureMember();
-  if (state.me) renderMemberChip();
-  loadAll();
+  if (state.me) {
+    renderMemberChip();
+    const members = await api("/api/members").catch(() => []);
+    if (members) {
+      state.members = members;
+      $("#memberFilter").innerHTML = `<option value="">Everyone</option>` +
+        members.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
+    }
+    loadAll();
+  }
 }
 
 init();

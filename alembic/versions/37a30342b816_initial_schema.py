@@ -28,8 +28,8 @@ def upgrade() -> None:
     sa.Column('phone_model', sa.String(length=120), nullable=True),
     sa.Column('device_id', sa.String(length=64), nullable=True),
     sa.Column('user_agent', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_members_device_id'), 'members', ['device_id'], unique=False)
@@ -38,8 +38,8 @@ def upgrade() -> None:
     sa.Column('member_id', sa.Uuid(), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('upi_id', sa.String(length=255), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.ForeignKeyConstraint(['member_id'], ['members.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -59,8 +59,8 @@ def upgrade() -> None:
     sa.Column('is_shared', sa.Boolean(), nullable=False),
     sa.Column('shared_with_id', sa.Uuid(), nullable=True),
     sa.Column('source_file', sa.String(length=255), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.ForeignKeyConstraint(['account_id'], ['accounts.id'], ),
     sa.ForeignKeyConstraint(['member_id'], ['members.id'], ),
     sa.ForeignKeyConstraint(['shared_with_id'], ['members.id'], ),

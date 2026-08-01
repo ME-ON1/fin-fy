@@ -11,12 +11,15 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.secrets import secrets
+from app.database import database_url
 from app.models import Base
 
-config.set_main_option(
-    "sqlalchemy.url",
-    f"postgresql://{secrets.DB_USER}:{secrets.DB_PASS}@localhost:{secrets.DB_PORT}/{secrets.DB_NAME}",
-)
+if secrets.DB_TYPE == "libsql":
+    from app.libsql_dialect import register_dialects
+
+    register_dialects()
+
+config.set_main_option("sqlalchemy.url", database_url())
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -56,15 +59,15 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    from app.database import engine as app_engine
 
-    with connectable.connect() as connection:
+    render_as_batch = secrets.DB_TYPE in ("sqlite", "libsql")
+
+    with app_engine.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=render_as_batch,
         )
 
         with context.begin_transaction():

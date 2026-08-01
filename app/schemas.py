@@ -21,6 +21,7 @@ class MemberRegister(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     device_id: str = Field(min_length=8, max_length=64)
     upi_id: str | None = None
+    pin: str | None = Field(default=None, min_length=4, max_length=64)
 
 
 class MemberOut(TimestampMixin):
