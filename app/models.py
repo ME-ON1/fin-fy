@@ -25,6 +25,14 @@ class TransactionType(str, enum.Enum):
     debit = "debit"
 
 
+class TransactionStatus(str, enum.Enum):
+    """Payment outcome. Only `success` counts in totals; `pending` is shown
+    but excluded until confirmed; `failed` is never counted."""
+    success = "success"
+    failed = "failed"
+    pending = "pending"
+
+
 class Category(str, enum.Enum):
     groceries = "groceries"
     transport = "transport"
@@ -115,6 +123,9 @@ class Transaction(Base):
 
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     type: Mapped[TransactionType] = mapped_column(Enum(TransactionType))
+    status: Mapped[TransactionStatus] = mapped_column(
+        Enum(TransactionStatus), default=TransactionStatus.success
+    )
 
     # "both" sharing: another person is involved, split 50/50 by default.
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)

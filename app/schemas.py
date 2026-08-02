@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from app.models import Category, TransactionType
+from app.models import Category, TransactionStatus, TransactionType
 
 
 class TimestampMixin(BaseModel):
@@ -55,6 +55,11 @@ class TransactionCreate(BaseModel):
     type: TransactionType
     is_shared: bool = False
     shared_with_id: uuid.UUID | None = None
+    status: TransactionStatus = TransactionStatus.success
+
+
+class TransactionStatusUpdate(BaseModel):
+    status: TransactionStatus
 
 
 class TransactionOut(TimestampMixin):
@@ -72,6 +77,7 @@ class TransactionOut(TimestampMixin):
     is_shared: bool
     shared_with_id: uuid.UUID | None
     source_file: str | None
+    status: TransactionStatus
 
     member_name: str | None = None
     shared_with_name: str | None = None
@@ -134,6 +140,7 @@ class LedgerRow(BaseModel):
     amount: float
     type: TransactionType
     is_shared: bool
+    status: TransactionStatus
     member_name: str
     shared_with_name: str | None
     account_name: str | None
@@ -147,6 +154,7 @@ class LedgerSummary(BaseModel):
     shared_spent: float
     transactions: int
     by_category: dict[str, float]
+    pending_count: int = 0
 
 
 class LedgerResponse(BaseModel):

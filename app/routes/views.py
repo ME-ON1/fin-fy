@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth import require_member
 from app.database import get_db
-from app.models import Member, Transaction, TransactionType
+from app.models import Member, Transaction, TransactionStatus, TransactionType
 from app.schemas import (
     LedgerResponse,
     LedgerRow,
@@ -60,10 +60,15 @@ def _row(t: Transaction) -> LedgerRow:
         amount=float(t.amount),
         type=t.type,
         is_shared=t.is_shared,
+        status=t.status,
         member_name=t.member.name if t.member else "?",
         shared_with_name=t.shared_with.name if t.shared_with else None,
         account_name=t.account.name if t.account else None,
     )
+
+
+def _confirmed(t: Transaction) -> bool:
+    return t.status == TransactionStatus.success
 
 
 @router.get("/ledger", response_model=LedgerResponse)
@@ -74,15 +79,17 @@ def monthly_ledger(
     db: Session = Depends(get_db),
 ):
     txs = _fetch(month, member_id, db)
-    spent = sum(float(t.amount) for t in txs if t.type == TransactionType.debit)
-    received = sum(float(t.amount) for t in txs if t.type == TransactionType.credit)
+    ok = [t for t in txs if _confirmed(t)]
+    spent = sum(float(t.amount) for t in ok if t.type == TransactionType.debit)
+    received = sum(float(t.amount) for t in ok if t.type == TransactionType.credit)
     shared_spent = sum(
-        float(t.amount) for t in txs if t.is_shared and t.type == TransactionType.debit
+        float(t.amount) for t in ok if t.is_shared and t.type == TransactionType.debit
     )
     by_cat: dict[str, float] = defaultdict(float)
-    for t in txs:
+    for t in ok:
         if t.type == TransactionType.debit:
             by_cat[t.category.value] += float(t.amount)
+    pending_count = sum(1 for t in txs if t.status == TransactionStatus.pending)
 
     return LedgerResponse(
         summary=LedgerSummary(
@@ -91,8 +98,9 @@ def monthly_ledger(
             total_received=round(received, 2),
             net=round(received - spent, 2),
             shared_spent=round(shared_spent, 2),
-            transactions=len(txs),
+            transactions=len(ok),
             by_category=dict(by_cat),
+            pending_count=pending_count,
         ),
         rows=[_row(t) for t in txs],
     )
@@ -108,10 +116,11 @@ def upi_summary(
     """'Paid this UPI ID month-wise': group debit transactions by the payee VPA
     (falls back to description-derived counterparty when no VPA is present)."""
     txs = _fetch(month, member_id, db)
-    spent = sum(float(t.amount) for t in txs if t.type == TransactionType.debit)
+    ok = [t for t in txs if _confirmed(t)]
+    spent = sum(float(t.amount) for t in ok if t.type == TransactionType.debit)
 
     buckets: dict[str, dict] = {}
-    for t in txs:
+    for t in ok:
         if t.type != TransactionType.debit:
             continue
         key = (t.counterparty_upi or "").strip() or (t.counterparty or "").strip() or "other"
@@ -164,7 +173,11 @@ def split_view(
     """Split-wise view: how each shared ('both') transaction splits 50/50
     between the payer and the other person, and the net settlement per pair."""
     txs = _fetch(month, member_id, db)
-    shared = [t for t in txs if t.is_shared and t.type == TransactionType.debit]
+    shared = [
+        t
+        for t in txs
+        if t.is_shared and t.type == TransactionType.debit and _confirmed(t)
+    ]
 
     trans: list[SplitTx] = []
     for t in shared:
@@ -221,7 +234,7 @@ def members_summary(
     """Settlement overview: what each member paid and, for shared transactions,
     who owes whom. Split is assumed 50/50."""
     members = db.query(Member).all()
-    txs = db.query(Transaction).all()
+    txs = [t for t in db.query(Transaction).all() if _confirmed(t)]
     paid: dict[uuid.UUID, float] = defaultdict(float)
     for t in txs:
         if t.type == TransactionType.debit:

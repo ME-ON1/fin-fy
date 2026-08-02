@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import require_member
 from app.database import get_db
 from app.models import Account, Member, Transaction, TransactionType
-from app.schemas import AccountOut, BatchCreate, BatchResult, TransactionOut
+from app.schemas import (
+    AccountOut,
+    BatchCreate,
+    BatchResult,
+    TransactionOut,
+    TransactionStatusUpdate,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -29,6 +35,7 @@ def _tx_out(t: Transaction) -> TransactionOut:
         is_shared=t.is_shared,
         shared_with_id=t.shared_with_id,
         source_file=t.source_file,
+        status=t.status,
         created_at=t.created_at,
         updated_at=t.updated_at,
         member_name=t.member.name if t.member else None,
@@ -74,6 +81,23 @@ def delete_transaction(
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+@router.patch("/{tx_id}/status")
+def update_status(
+    tx_id: uuid.UUID,
+    payload: TransactionStatusUpdate,
+    member: Member = Depends(require_member),
+    db: Session = Depends(get_db),
+):
+    t = db.get(Transaction, tx_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if t.member_id != member.id:
+        raise HTTPException(status_code=403, detail="You can only update your own transactions")
+    t.status = payload.status
+    db.commit()
+    return {"ok": True, "status": payload.status.value}
 
 
 @router.post("/batch", response_model=BatchResult)

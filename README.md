@@ -19,6 +19,15 @@ transactions split between people.
   even if browser storage is cleared, the device is still recognized. A PIN
   (set at registration) is required to bind a *new* device to an existing
   member, and the wrong PIN is rejected.
+- **Scan & pay (UPI QR → Google Pay)** — the *Pay* tab opens your camera to
+  scan a UPI QR, pre-fills the merchant and amount, and deep-links into
+  Google Pay (`tez://upi/pay`). One-tap note presets (*Uber both / solo*,
+  *Swiggy both / solo*, *groceries*, …) become the transaction remark, so
+  "both" entries auto-flag as shared. On return you mark the outcome
+  **Success / Failed / No status** — only *Success* counts in the totals;
+  *No status* keeps the entry in the ledger as **pending** (excluded from
+  calculations, confirmable later from the list); *Failed* saves nothing.
+  (Camera capture works on plain HTTP; a live viewfinder would need HTTPS.)
 - **"both" sharing logic** — remarks containing *both* (or groceries, which is
   always shared) are flagged as shared and split 50/50 with the other person.
   Categories (food, transport, groceries…) are auto-guessed.

@@ -34,6 +34,7 @@
       <button class="tab active" data-tab="ledger">Ledger</button>
       <button class="tab" data-tab="upi">By UPI</button>
       <button class="tab" data-tab="split">Split</button>
+      <button class="tab" data-tab="pay">Pay</button>
       <button class="tab" data-tab="people">People</button>
     </nav>
 
@@ -65,6 +66,55 @@
     <!-- People view -->
     <section id="view-people" class="view">
       <div id="peopleList" class="people-list"></div>
+    </section>
+
+    <!-- Pay view -->
+    <section id="view-pay" class="view">
+      <input type="file" id="qrInput" accept="image/*" capture="environment" hidden>
+      <div class="pay-card" id="payIdle">
+        <button class="scan-btn" id="scanBtn">
+          <span class="scan-icon">📷</span>
+          <span class="scan-main">Scan UPI QR code</span>
+          <span class="scan-sub">opens your camera · works on this HTTP network</span>
+        </button>
+        <button class="btn-ghost" id="manualBtn">Or enter UPI id manually</button>
+      </div>
+
+      <div class="pay-card" id="payForm" hidden>
+        <div class="pay-merchant">
+          <div class="pm-avatar" id="pmAvatar">🏪</div>
+          <div class="pm-info">
+            <div class="pm-name" id="pmName">—</div>
+            <div class="pm-upi" id="pmUpi">—</div>
+          </div>
+        </div>
+        <input type="text" id="payUpiManual" placeholder="merchant@upi (manual)" hidden>
+        <label>Amount (₹)</label>
+        <input type="number" id="payAmount" inputmode="decimal" placeholder="0.00" class="amount-input">
+        <label>Transaction note</label>
+        <div class="note-chips" id="noteChips"></div>
+        <input type="text" id="payNote" placeholder="custom note…" class="note-custom">
+        <button class="btn-primary pay-now" id="payNow">Pay with Google Pay ▶</button>
+      </div>
+
+      <div class="pay-card" id="payWaiting" hidden>
+        <div class="result-icon">⏳</div>
+        <div class="result-title">Payment sent to Google Pay</div>
+        <div class="result-sub">Finish the payment there — when you're back, tell us how it went.</div>
+        <button class="btn-ghost" id="backFromGpay">I'm back</button>
+      </div>
+
+      <div class="pay-card" id="payResult" hidden>
+        <div class="result-icon" id="resultIcon">🤔</div>
+        <div class="result-title" id="resultTitle">How did it go?</div>
+        <div class="result-sub" id="resultSub"></div>
+        <div class="result-actions result-three">
+          <button class="btn-ghost" id="resultFail">✗ Failed</button>
+          <button class="btn-ghost" id="resultPending">? No status</button>
+          <button class="btn-primary" id="resultSuccess">✓ Success</button>
+        </div>
+        <p class="muted" style="text-align:center;margin-top:10px">Only <b>Success</b> counts in the totals. “No status” is kept out until you confirm it.</p>
+      </div>
     </section>
   </main>
 </div>
@@ -105,6 +155,7 @@
 
 <div id="toasts" class="toasts"></div>
 
+<script src="/vendor/jsqr.js"></script>
 <script src="/fp.js"></script>
 <script src="/app.js"></script>
 </body>

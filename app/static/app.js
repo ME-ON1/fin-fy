@@ -156,6 +156,7 @@ function setTab(tab) {
   if (tab === "ledger") loadLedger();
   if (tab === "upi") loadUpi();
   if (tab === "split") loadSplit();
+  if (tab === "pay") initPayTab();
   if (tab === "people") loadPeople();
 }
 
@@ -183,6 +184,7 @@ async function loadLedger() {
     <div class="sum-card"><div class="label">Shared spend</div><div class="value amber">${fmtMoney(s.shared_spent)}</div></div>
     <div class="sum-card"><div class="label">Net</div><div class="value ${s.net >= 0 ? "pos" : "neg"}">${fmtMoney(s.net)}</div></div>
     <div class="sum-card wide"><div class="label">By category</div><div class="value">${categoryLine(s.by_category)}</div></div>
+    ${s.pending_count ? `<div class="sum-card wide"><div class="label">⏳ ${s.pending_count} payment(s) unconfirmed — excluded from totals until marked</div><div class="value"></div></div>` : ""}
     <div class="sum-card wide" style="padding:8px;text-align:center"><button class="btn-inline" id="goSplit">🧮 View split-wise ▶</button></div>
   `;
 
@@ -207,7 +209,10 @@ async function loadLedger() {
 
 function dayTotal(rows, day) {
   let out = 0, inc = 0;
-  for (const r of rows) if (r.date === day) r.type === "debit" ? (out += r.amount) : (inc += r.amount);
+  for (const r of rows) {
+    if (r.date !== day || r.status !== "success") continue;
+    r.type === "debit" ? (out += r.amount) : (inc += r.amount);
+  }
   const parts = [];
   if (out) parts.push(`<span style="color:var(--red)">${fmtMoney(out)}</span>`);
   if (inc) parts.push(`<span style="color:var(--green)">${fmtMoney(inc)}</span>`);
@@ -221,16 +226,19 @@ function txRow(t) {
     const who = t.shared_with_name ? ` ↔ ${esc(t.shared_with_name)}` : "";
     badges.push(`<span class="badge shared">🤝 both${who}</span>`);
   }
+  const pending = t.status === "pending";
+  if (pending) badges.push(`<span class="badge pending">⏳ pending</span>`);
   const subParts = [];
   if (t.remarks) subParts.push(`“${esc(t.remarks)}”`);
   if (t.counterparty_upi) subParts.push(esc(t.counterparty_upi));
   if (t.account_name) subParts.push(esc(t.account_name));
   return `
-    <div class="tx" data-id="${t.id}">
+    <div class="tx${pending ? " tx-pending" : ""}" data-id="${t.id}">
       <div class="tx-main">
         <div class="tx-desc">${esc(t.description)}</div>
         <div class="tx-sub">${subParts.join(" · ")}</div>
         <div class="tx-badges">${badges.join("")}</div>
+        ${pending ? `<div class="tx-confirm">Was it paid? <button class="badge-btn ok" data-id="${t.id}" data-status="success">✓ yes</button><button class="badge-btn bad" data-id="${t.id}" data-status="failed">✗ no</button></div>` : ""}
       </div>
       <div class="tx-amt ${t.type}">${t.type === "debit" ? "−" : "+"}${fmtMoney(t.amount)}</div>
     </div>`;
@@ -474,6 +482,220 @@ async function savePreview(goSplit = false) {
   }
 }
 
+/* ---------------- pay / QR deep-link ---------------- */
+
+const NOTE_PRESETS = [
+  { label: "Uber · both", note: "uber both", both: true },
+  { label: "Uber · solo", note: "uber single", both: false },
+  { label: "Ola · both", note: "ola both", both: true },
+  { label: "Ola · solo", note: "ola single", both: false },
+  { label: "Cab · both", note: "cab both", both: true },
+  { label: "Cab · solo", note: "cab single", both: false },
+  { label: "Swiggy · both", note: "swiggy both", both: true },
+  { label: "Swiggy · solo", note: "swiggy single", both: false },
+  { label: "Zomato · both", note: "zomato both", both: true },
+  { label: "Zomato · solo", note: "zomato single", both: false },
+  { label: "Food · both", note: "food both", both: true },
+  { label: "Food · solo", note: "food single", both: false },
+  { label: "Groceries · both", note: "groceries", both: true },
+  { label: "Shopping · both", note: "shopping both", both: true },
+  { label: "Shopping · solo", note: "shopping single", both: false },
+];
+
+const PAY_KEY = "finfy_pay";
+let payState = null; // { pa, pn, am, cu, note }
+
+function parseUpiQr(text) {
+  let s = String(text || "").trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = "upi://pay?" + s.replace(/^\?/, "");
+  let u;
+  try { u = new URL(s); } catch { return null; }
+  if (!["upi:", "tez:", "gpay:"].includes(u.protocol)) return null;
+  const p = u.searchParams;
+  return {
+    pa: p.get("pa"),
+    pn: p.get("pn"),
+    am: p.get("am"),
+    cu: p.get("cu") || "INR",
+    tn: p.get("tn") || "",
+  };
+}
+
+function buildTezUrl(q) {
+  const p = new URLSearchParams();
+  if (q.pa) p.set("pa", q.pa);
+  if (q.pn) p.set("pn", q.pn);
+  if (q.am) p.set("am", q.am);
+  p.set("cu", q.cu || "INR");
+  if (q.note) p.set("tn", q.note);
+  return "tez://upi/pay?" + p.toString().replace(/\+/g, "%20");
+}
+
+function guessPayCategory(note) {
+  const n = (note || "").toLowerCase();
+  if (/uber|ola|cab|taxi|auto|rapido|metro|petrol|fuel|parking|toll/.test(n)) return "transport";
+  if (/swiggy|zomato|food|restaurant|hotel|tea|coffee|dominos|kfc|pizza/.test(n)) return "food";
+  if (/grocer|dmart|blinkit|bigbasket|mart|kirana|sabji/.test(n)) return "groceries";
+  if (/shop|amazon|flipkart|myntra|mall|store/.test(n)) return "shopping";
+  return "other";
+}
+
+function decodeQrFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, 1024 / img.width);
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      try {
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = window.jsQR(data.data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" });
+        URL.revokeObjectURL(url);
+        if (code && code.data) resolve(code.data);
+        else reject(new Error("No QR code found in that image"));
+      } catch (e) { URL.revokeObjectURL(url); reject(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't read that image")); };
+    img.src = url;
+  });
+}
+
+function initPayTab() {
+  if (!state.me) { openRegister(); return; }
+  // resume an in-flight payment (e.g. page reloaded while paying)
+  if (sessionStorage.getItem(PAY_KEY)) { showPayResult(); return; }
+  if (!payState) { renderNoteChips(null); }
+}
+
+function renderNoteChips(selectedNote) {
+  const wrap = $("#noteChips");
+  wrap.innerHTML = NOTE_PRESETS.map((p) =>
+    `<button class="note-chip${p.both ? " both" : ""}${p.note === selectedNote ? " active" : ""}" data-note="${esc(p.note)}">${esc(p.label)}</button>`
+  ).join("");
+  $$("#noteChips .note-chip").forEach((c) =>
+    c.addEventListener("click", () => {
+      $$("#noteChips .note-chip").forEach((x) => x.classList.remove("active"));
+      c.classList.add("active");
+      $("#payNote").value = c.dataset.note;
+    })
+  );
+  if (selectedNote && !NOTE_PRESETS.some((p) => p.note === selectedNote)) {
+    $("#payNote").value = selectedNote;
+  }
+}
+
+async function onQrFile(file) {
+  if (!file) return;
+  toast("Reading QR…");
+  let text;
+  try { text = await decodeQrFile(file); }
+  catch (e) { toast(e.message, "err"); return; }
+  const q = parseUpiQr(text);
+  if (!q || !q.pa) { toast("That QR isn't a UPI payment code", "err"); return; }
+  applyPay(q);
+}
+
+function applyPay(q) {
+  payState = { pa: q.pa, pn: q.pn, am: q.am || "", cu: q.cu || "INR", note: q.tn || "" };
+  $("#pmName").textContent = q.pn || "Merchant";
+  $("#pmUpi").textContent = q.pa;
+  $("#payAmount").value = q.am || "";
+  $("#payUpiManual").hidden = true;
+  $("#payUpiManual").value = "";
+  renderNoteChips(q.tn || null);
+  $("#payResult").hidden = true;
+  $("#payWaiting").hidden = true;
+  $("#payIdle").hidden = true;
+  $("#payForm").hidden = false;
+  $("#payAmount").focus();
+}
+
+function startPay() {
+  if (!state.me) { openRegister(); return; }
+  const am = parseFloat($("#payAmount").value);
+  if (!am || am <= 0) { toast("Enter an amount", "err"); return; }
+  const manual = $("#payUpiManual").value.trim();
+  const pa = (payState && payState.pa) || manual || null;
+  const pn = payState ? payState.pn : null;
+  if (!pa) { toast("No merchant UPI id", "err"); return; }
+  const note = $("#payNote").value.trim();
+  payState = { pa, pn, am: String(am), cu: "INR", note };
+  sessionStorage.setItem(PAY_KEY, JSON.stringify(payState));
+  $("#payForm").hidden = true;
+  $("#payWaiting").hidden = false;
+  window.location.href = buildTezUrl(payState);
+}
+
+function showPayResult() {
+  const raw = sessionStorage.getItem(PAY_KEY);
+  if (!raw) { $("#payWaiting").hidden = true; $("#payIdle").hidden = false; return; }
+  try { payState = JSON.parse(raw); } catch { return; }
+  $("#resultSub").textContent =
+    `${fmtMoney(payState.am)} to ${payState.pn || payState.pa}` +
+    (payState.note ? ` · “${payState.note}”` : "");
+  $("#payWaiting").hidden = true;
+  $("#payForm").hidden = true;
+  $("#payIdle").hidden = true;
+  $("#payResult").hidden = false;
+}
+
+function resetPay() {
+  sessionStorage.removeItem(PAY_KEY);
+  payState = null;
+  $("#payResult").hidden = true;
+  $("#payWaiting").hidden = true;
+  $("#payForm").hidden = true;
+  $("#payIdle").hidden = false;
+  $("#payAmount").value = "";
+  $("#payNote").value = "";
+  renderNoteChips(null);
+}
+
+async function savePaidTransaction(status) {
+  if (!payState) return;
+  const note = payState.note || "";
+  const category = guessPayCategory(note);
+  const isShared = /\bboth\b/i.test(note) || category === "groceries";
+  let sharedWithId = null;
+  if (isShared) {
+    const others = state.members.filter((m) => m.id !== state.me.id);
+    if (others.length === 1) sharedWithId = others[0].id;
+  }
+  const payload = {
+    transactions: [{
+      date: new Date().toISOString().slice(0, 10),
+      description: `UPI payment to ${payState.pn || payState.pa}`,
+      remarks: note || null,
+      category,
+      counterparty: payState.pn || null,
+      counterparty_upi: payState.pa,
+      amount: parseFloat(payState.am),
+      type: "debit",
+      is_shared: isShared,
+      shared_with_id: sharedWithId,
+      status,
+    }],
+    source_file: null,
+  };
+  try {
+    const res = await api("/api/transactions/batch", { method: "POST", body: JSON.stringify(payload) });
+    if (res === null) return;
+    if (status === "pending") {
+      toast(`Saved as pending — not counted until confirmed ⏳`, "ok");
+    } else {
+      toast(`Saved ✓ ${fmtMoney(payState.am)}${isShared ? " · shared" : ""}`, "ok");
+    }
+    resetPay();
+    loadAll();
+  } catch (e) {
+    toast(`Save failed: ${e.message}`, "err");
+  }
+}
+
 /* ---------------- helpers ---------------- */
 
 function esc(s) {
@@ -509,6 +731,46 @@ async function init() {
   $("#previewSaveSplit").addEventListener("click", () => savePreview(true));
   $("#previewCancel").addEventListener("click", () => { $("#previewModal").hidden = true; state.preview = null; });
   $("#summaryCards").addEventListener("click", (e) => { if (e.target.closest("#goSplit")) setTab("split"); });
+  // mark pending transactions as success/failed from the ledger
+  $("#ledgerList").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".badge-btn");
+    if (!btn) return;
+    try {
+      const res = await api(`/api/transactions/${btn.dataset.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: btn.dataset.status }),
+      });
+      if (res === null) return;
+      toast(btn.dataset.status === "success" ? "Marked as paid ✓" : "Marked as failed", "ok");
+      loadAll();
+    } catch (err) { toast(err.message, "err"); }
+  });
+  // pay / QR
+  $("#scanBtn").addEventListener("click", () => {
+    if (!state.me) { openRegister(); return; }
+    $("#qrInput").click();
+  });
+  $("#qrInput").addEventListener("change", (e) => { onQrFile(e.target.files[0]); e.target.value = ""; });
+  $("#manualBtn").addEventListener("click", () => {
+    if (!state.me) { openRegister(); return; }
+    payState = { pa: null, pn: null, am: "", cu: "INR", note: "" };
+    $("#pmName").textContent = "Manual entry";
+    $("#pmUpi").textContent = "enter the UPI id below";
+    $("#payUpiManual").hidden = false;
+    $("#payAmount").value = "";
+    renderNoteChips(null);
+    $("#payIdle").hidden = true;
+    $("#payForm").hidden = false;
+    $("#payUpiManual").focus();
+  });
+  $("#payNow").addEventListener("click", startPay);
+  $("#backFromGpay").addEventListener("click", showPayResult);
+  $("#resultSuccess").addEventListener("click", () => savePaidTransaction("success"));
+  $("#resultPending").addEventListener("click", () => savePaidTransaction("pending"));
+  $("#resultFail").addEventListener("click", () => { toast("Not saved — payment failed", "err"); resetPay(); });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && sessionStorage.getItem(PAY_KEY) && state.tab === "pay") showPayResult();
+  });
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#monthPicker").addEventListener("change", (e) => { state.month = e.target.value; loadAll(); });
   $("#memberFilter").addEventListener("change", (e) => { state.filterMember = e.target.value; loadAll(); });
