@@ -1,5 +1,11 @@
+
+
 import jsQR from "jsqr";
 import type { Category } from "./types";
+
+import {createSign } from "crypto"
+
+
 
 export interface UpiQuery {
   pa: string;
@@ -23,13 +29,21 @@ export function parseUpiQr(text: string): UpiQuery | null {
   }
   if (!["upi:", "tez:", "gpay:"].includes(u.protocol)) return null;
   const p = u.searchParams;
-  return {
+
+  
+  
+  
+  const data =  {
     pa: p.get("pa") || "",
     pn: p.get("pn"),
     am: p.get("am"),
     cu: p.get("cu") || "INR",
     tn: p.get("tn") || "",
   };
+
+  return data;
+
+
 }
 
 export interface PayState {
@@ -47,13 +61,24 @@ export function buildTezUrl(q: PayState): string {
   if (q.am) p.set("am", q.am);
   p.set("cu", q.cu || "INR");
   if (q.note) p.set("tn", q.note);
-  return (
+  const privateKey = process.env.RSA_PRIVATE_KEY as string ; 
+  const uri =  (
     "tez://upi/pay?" +
     p.toString().replace(/\+/g, "%20") +
     "aid=uGICAgIC1lKfVLQ" +
     "mc=" +
     "tr=b76ec8450672"
   );
+
+  const sign = createSign("RSA-SHA256");
+
+  sign.update(uri); 
+  sign.end(); 
+
+  const signature = sign.sign(privateKey, "base64");
+
+  return uri + "&sign=" + signature; 
+
 }
 
 /* ---- payee address: VPA (name@bank) or phone number ---- */
