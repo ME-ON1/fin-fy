@@ -84,7 +84,10 @@ function toast(msg, kind = "") {
 /* ---------------- device / member ---------------- */
 
 function fmtMoney(n) {
-  return "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  // whole rupees show as ₹1 (no .00); paise only shown when they exist
+  const num = Number(n);
+  const hasPaise = Math.round(num * 100) % 100 !== 0;
+  return "₹" + num.toLocaleString("en-IN", { maximumFractionDigits: hasPaise ? 2 : 0 });
 }
 
 async function ensureMember() {
@@ -528,7 +531,32 @@ function buildTezUrl(q) {
   if (q.am) p.set("am", q.am);
   p.set("cu", q.cu || "INR");
   if (q.note) p.set("tn", q.note);
-  return "tez://upi/pay?" + p.toString().replace(/\+/g, "%20");
+  return "tez://upi/pay?" + p.toString().replace(/\+/g, "%20") + `aid=uGICAgIC1lKfVLQ` + `mc=${""}` + "tr=b76ec8450672";
+}
+
+// ---- payee address: VPA (name@bank) or phone number ----------------
+
+function isVpa(s) {
+  return /^[\w.-]+@[\w.-]+$/.test((s || "").trim());
+}
+
+function normalizePhone(s) {
+  // -> "+919876543210" or null
+  let d = String(s || "").replace(/[^\d]/g, "");
+  if (d.length === 10) return "+91" + d;
+  if (d.length === 11 && d[0] === "0") return "+91" + d.slice(1);
+  if (d.length === 12 && d.startsWith("91")) return "+91" + d.slice(2);
+  if (d.length === 12) return "+" + d; // other country code
+  return null;
+}
+
+function normalizePayee(input) {
+  // accept VPA as-is, or turn a phone number into the UPI phone format
+  const s = (input || "").trim();
+  if (isVpa(s)) return s;
+  const ph = normalizePhone(s);
+  if (ph) return ph;
+  return null;
 }
 
 function guessPayCategory(note) {
@@ -618,16 +646,22 @@ function startPay() {
   if (!state.me) { openRegister(); return; }
   const am = parseFloat($("#payAmount").value);
   if (!am || am <= 0) { toast("Enter an amount", "err"); return; }
+  if (!Number.isInteger(am)) { toast("Whole rupees only (no paise)", "err"); return; }
   const manual = $("#payUpiManual").value.trim();
-  const pa = (payState && payState.pa) || manual || null;
-  const pn = payState ? payState.pn : null;
-  if (!pa) { toast("No merchant UPI id", "err"); return; }
+  let pa = (payState && payState.pa) || null;
+  let pn = payState ? payState.pn : null;
+  if (!pa) {
+    pa = normalizePayee(manual);
+    if (!pa) { toast("Enter a valid UPI id (name@bank) or phone number", "err"); return; }
+    pn = null;
+  }
   const note = $("#payNote").value.trim();
   payState = { pa, pn, am: String(am), cu: "INR", note };
   sessionStorage.setItem(PAY_KEY, JSON.stringify(payState));
   $("#payForm").hidden = true;
   $("#payWaiting").hidden = false;
   window.location.href = buildTezUrl(payState);
+  // window.alert(buildTezUrl(payState))
 }
 
 function showPayResult() {
@@ -751,18 +785,20 @@ async function init() {
     $("#qrInput").click();
   });
   $("#qrInput").addEventListener("change", (e) => { onQrFile(e.target.files[0]); e.target.value = ""; });
-  $("#manualBtn").addEventListener("click", () => {
+  const openManualEntry = () => {
     if (!state.me) { openRegister(); return; }
     payState = { pa: null, pn: null, am: "", cu: "INR", note: "" };
     $("#pmName").textContent = "Manual entry";
-    $("#pmUpi").textContent = "enter the UPI id below";
+    $("#pmUpi").textContent = "UPI id (name@bank) or phone number";
     $("#payUpiManual").hidden = false;
     $("#payAmount").value = "";
     renderNoteChips(null);
     $("#payIdle").hidden = true;
     $("#payForm").hidden = false;
     $("#payUpiManual").focus();
-  });
+  };
+  $("#phoneBtn").addEventListener("click", openManualEntry);
+  $("#manualBtn").addEventListener("click", openManualEntry);
   $("#payNow").addEventListener("click", startPay);
   $("#backFromGpay").addEventListener("click", showPayResult);
   $("#resultSuccess").addEventListener("click", () => savePaidTransaction("success"));
