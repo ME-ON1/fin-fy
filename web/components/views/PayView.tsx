@@ -113,7 +113,7 @@ export default function PayView() {
     setTimeout(() => manualRef.current?.focus(), 50);
   };
 
-  const startPay = () => {
+  const startPay = async () => {
     if (!me) {
       openRegister();
       return;
@@ -147,7 +147,12 @@ export default function PayView() {
     setPay(ps);
     savePayState(ps);
     setPhase("waiting");
-    window.location.href = buildTezUrl(ps);
+    try {
+      window.location.href = await buildTezUrl(ps);
+    } catch {
+      setPhase("form");
+      toast("Could not build the payment link", "err");
+    }
   };
 
   const resetPay = () => {

@@ -3,9 +3,6 @@
 import jsQR from "jsqr";
 import type { Category } from "./types";
 
-import {createSign } from "crypto"
-
-
 
 export interface UpiQuery {
   pa: string;
@@ -54,31 +51,26 @@ export interface PayState {
   note: string;
 }
 
-export function buildTezUrl(q: PayState): string {
-  const p = new URLSearchParams();
-  if (q.pa) p.set("pa", q.pa);
-  if (q.pn) p.set("pn", q.pn);
-  if (q.am) p.set("am", q.am);
-  p.set("cu", q.cu || "INR");
-  if (q.note) p.set("tn", q.note);
-  const privateKey = process.env.RSA_PRIVATE_KEY as string ; 
-  const uri =  (
-    "tez://upi/pay?" +
-    p.toString().replace(/\+/g, "%20") +
-    "aid=uGICAgIC1lKfVLQ" +
-    "mc=" +
-    "tr=b76ec8450672"
-  );
-
-  const sign = createSign("RSA-SHA256");
-
-  sign.update(uri); 
-  sign.end(); 
-
-  const signature = sign.sign(privateKey, "base64");
-
-  return uri + "&sign=" + signature; 
-
+/**
+ * Build the Google Pay UPI intent URL, including its RSA signature.
+ *
+ * The signing key must stay on the server, so this calls the
+ * `/api/pay-url` route instead of signing in the browser.
+ */
+export async function buildTezUrl(q: PayState): Promise<string> {
+  const res = await fetch("/api/pay-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(q),
+  });
+  if (!res.ok) {
+    throw new Error("Could not build the payment link");
+  }
+  const data = (await res.json()) as { url?: string };
+  if (!data.url) {
+    throw new Error("Could not build the payment link");
+  }
+  return data.url;
 }
 
 /* ---- payee address: VPA (name@bank) or phone number ---- */
